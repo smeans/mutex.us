@@ -4,7 +4,6 @@ package main
 
 import (
 	"expvar"
-	"flag"
 	"log"
     "io/ioutil"
 
@@ -13,31 +12,19 @@ import (
 	"github.com/valyala/fasthttp/expvarhandler"
 )
 
-var (
-	addr = flag.String("addr", "localhost:8080", "Server listen address and port")
-	addrTLS = flag.String("addrTLS", "", "TCP address to listen to TLS (aka SSL or HTTPS) requests. Leave empty to disable TLS")
-	byteRange = flag.Bool("byteRange", false, "Enables byte range requests if set to true")
-	certFile = flag.String("certFile", "./ssl-cert.pem", "Path to TLS certificate file")
-	compress = flag.Bool("compress", false, "Enables transparent response compression if set to true")
-	dir = flag.String("dir", "./static", "Directory to serve static files from")
-	generateIndexPages = flag.Bool("generateIndexPages", false, "Whether to generate directory index pages")
-	keyFile = flag.String("keyFile", "./ssl-cert.key", "Path to TLS key file")
-	vhost = flag.Bool("vhost", false, "Enables virtual hosting by prepending the requested path with the requested hostname")
-)
-
 func main() {
-	// Parse command-line flags.
-	flag.Parse()
-
+	if ConfigError != nil {
+		log.Fatalf(ConfigErrorText)
+	}
+	
 	// Setup FS handler
 	fs := &fasthttp.FS{
-		Root:               *dir,
+		Root:               *Dir,
 		IndexNames:         []string{"../README.md"},
-		GenerateIndexPages: *generateIndexPages,
-		Compress:           *compress,
-		AcceptByteRange:    *byteRange,
+		GenerateIndexPages: *GenerateIndexPages,
+		Compress:           *Compress,
 	}
-	if *vhost {
+	if *Vhost {
 		fs.PathRewrite = fasthttp.NewVHostPathRewriter(0)
 	}
 	fsHandler := fs.NewRequestHandler()
@@ -61,27 +48,27 @@ func main() {
 	}
 
 	// Start HTTP server.
-	if len(*addr) > 0 {
-		log.Printf("Starting HTTP server on %q", *addr)
+	if len(*Addr) > 0 {
+		log.Printf("Starting HTTP server on %q", *Addr)
 		go func() {
-			if err := fasthttp.ListenAndServe(*addr, requestHandler); err != nil {
+			if err := fasthttp.ListenAndServe(*Addr, requestHandler); err != nil {
 				log.Fatalf("error in ListenAndServe: %v", err)
 			}
 		}()
 	}
 
 	// Start HTTPS server.
-	if len(*addrTLS) > 0 {
-		log.Printf("Starting HTTPS server on %q", *addrTLS)
+	if len(*AddrTLS) > 0 {
+		log.Printf("Starting HTTPS server on %q", *AddrTLS)
 		go func() {
-			if err := fasthttp.ListenAndServeTLS(*addrTLS, *certFile, *keyFile, requestHandler); err != nil {
+			if err := fasthttp.ListenAndServeTLS(*AddrTLS, *CertFile, *KeyFile, requestHandler); err != nil {
 				log.Fatalf("error in ListenAndServeTLS: %v", err)
 			}
 		}()
 	}
 
-	log.Printf("Serving files from directory %q", *dir)
-	log.Printf("See stats at http://%s/stats", *addr)
+	log.Printf("Serving files from directory %q", *Dir)
+	log.Printf("See stats at http://%s/stats", *Addr)
 
 	// Wait forever.
 	select {}
@@ -125,7 +112,7 @@ var readmeHTML []byte
 
 func mainHandler(ctx *fasthttp.RequestCtx) {
     if len(readmeHTML) == 0 {
-        readmeData, _ := ioutil.ReadFile("README.md")
+        readmeData, _ := ioutil.ReadFile("../README.md")
 
         readmeHTML = markdown.ToHTML(readmeData, nil, nil)
     }

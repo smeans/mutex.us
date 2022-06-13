@@ -1,4 +1,4 @@
-module mutex/server
+module mutex
 
 go 1.18
 
