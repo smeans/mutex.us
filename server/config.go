@@ -8,6 +8,7 @@ import (
 
 var (
     flagSet = flag.NewFlagSet("mutex", flag.ContinueOnError)
+    DbPath = flagSet.String("dbPath", "./mutex_site.db", "Path to site SQLite database file")
 	Addr = flagSet.String("addr", "localhost:8080", "Server listen address and port")
 	AddrTLS = flagSet.String("addrTLS", "", "TCP address to listen to TLS (aka SSL or HTTPS) requests. Leave empty to disable TLS")
 	CertFile = flagSet.String("certFile", "./ssl-cert.pem", "Path to TLS certificate file")

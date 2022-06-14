@@ -16,7 +16,7 @@ func main() {
 	if ConfigError != nil {
 		log.Fatalf(ConfigErrorText)
 	}
-	
+
 	// Setup FS handler
 	fs := &fasthttp.FS{
 		Root:               *Dir,
@@ -41,6 +41,8 @@ func main() {
 			expvarhandler.ExpvarHandler(ctx)
         case "/":
             mainHandler(ctx)
+		case "/api/client":
+			apiClientHandler(ctx)
 		default:
 			fsHandler(ctx)
 			updateFSCounters(ctx)
