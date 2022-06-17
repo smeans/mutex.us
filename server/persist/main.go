@@ -5,6 +5,7 @@ import (
     "log"
     "reflect"
     "strings"
+    "errors"
 
     "database/sql"
     _ "github.com/mattn/go-sqlite3"
@@ -12,6 +13,8 @@ import (
 
 var tableSet map[string]reflect.Type
 var db *sql.DB
+
+type scanner func(*sql.Rows)
 
 var goToSqliteKindMap map[reflect.Kind]string = map[reflect.Kind]string{
     reflect.Bool: "integer",
@@ -52,11 +55,23 @@ func getTableName(i interface{}) string {
     return strings.ReplaceAll(getTypeName(i), ".", "_")
 }
 
+func getFieldMap(i interface{}) (fields map[string]interface{}) {
+    fields = make(map[string]interface{})
+
+    iType := reflect.TypeOf(i).Elem()
+    iValue := reflect.ValueOf(i).Elem()
+    for i := 0; i < iType.NumField(); i++ {
+        fields[iType.Field(i).Name] = iValue.Field(i).Interface()
+    }
+
+    return fields
+}
+
 func getFieldArray(i interface{}) (fields []interface{}) {
-    iType := reflect.ValueOf(i).Elem()
-    fields = make([]interface{}, iType.NumField())
+    iValue := reflect.ValueOf(i).Elem()
+    fields = make([]interface{}, iValue.NumField())
     for i := 0; i < len(fields); i++ {
-        fields[i] = iType.Field(i).Interface()
+        fields[i] = iValue.Field(i).Interface()
     }
 
     return fields
@@ -214,6 +229,70 @@ func Insert(r interface{}) (err error) {
     }
 
     tx.Commit()
+
+    return nil
+}
+
+// !!!FUTURE!!! wsm - the way the sql module is structured makes it
+// *very* difficult to retrieve row data parametrically (see the
+// https://pkg.go.dev/database/sql#Rows.Scan Scan() function). In
+// the future it would be nice to be able to auto-populate the
+// structure and return it, but sadly for now a callback it is.
+func Find(r interface{}, populate scanner) (err error) {
+    if err = verifyTable(r); err != nil {
+        return err
+    }
+
+    tableName := getTableName(r)
+    fields := getFieldMap(r)
+    columns := strings.Builder{}
+    where := strings.Builder{}
+    whereValues := make([]interface{}, 0, len(fields))
+
+    for field, value := range fields {
+        if columns.Len() > 0 {
+            columns.WriteString(", ")
+        }
+        columns.WriteString(field)
+
+        if !reflect.ValueOf(value).IsZero() {
+            if where.Len() > 0 {
+                where.WriteString(" and ")
+            }
+            where.WriteString(fmt.Sprintf("%s = ?", field))
+            whereValues = append(whereValues, value)
+        }
+    }
+
+    sql := strings.Builder{}
+    sql.WriteString(fmt.Sprintf("select %s from %s", columns.String(),
+            tableName))
+
+    if where.Len() > 0 {
+        sql.WriteString(" where " + where.String())
+    }
+
+    stmt, err := db.Prepare(sql.String())
+    if err != nil {
+        return err
+    }
+    defer stmt.Close()
+
+    rows, err := stmt.Query(whereValues...)
+    if err != nil {
+        return err
+    }
+    defer rows.Close()
+
+    if !rows.Next() {
+        return errors.New("record not found")
+    }
+
+    if err != nil {
+        return err
+    }
+
+    populate(rows)
 
     return nil
 }

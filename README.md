@@ -22,7 +22,7 @@ If the email address is not in use, a new API key will be returned:
 ### Lock a Mutex
 With a valid API key, it is possible to lock a mutex using a POST request. The URL format is:
 ```
-/client/{apiKey}/mutex/{mutexIdentifier}?lock&waitTimeoutMs={waitTimeoutMs}
+/api/client/{apiKey}/mutex/{mutexIdentifier}?lock&waitTimeoutMs={waitTimeoutMs}
 ```
 Everything after `/mutex/` is considered to be the `mutexIdentifier`. It may contain any valid URL characters, including slashes (`/`). Given a mutex URL, it is possible to lock it with a `POST` request:
 ```
@@ -34,7 +34,7 @@ If the mutex exists but is currently locked, the request will block until either
 ### Unlock a Mutex
 When a client is done modifying the resource protected by the mutex, it needs to release the mutex using a POST request:
 ```
-/client/{apiKey}/mutex/{mutexIdentifier}?unlock
+/api/client/{apiKey}/mutex/{mutexIdentifier}?unlock
 ```
 As with the `lock` request, everything after `/mutex/` is considered to be the `mutexIdentifier`. The following `curl` command would unlock the mutex locked by the previous example:
 ```
