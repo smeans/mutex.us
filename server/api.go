@@ -7,6 +7,7 @@ import (
     "database/sql"
     "time"
     "errors"
+    "sync/atomic"
 
     "github.com/google/uuid"
     "mutex/server/persist"
@@ -19,37 +20,54 @@ type ClientInfo struct {
 }
 
 type ClientResources struct {
-    mu sync.Mutex
+    mu sync.RWMutex
+    totalLocks *int32
+    previousTotalLocks int32
+    totalUnlocks *int32
+    previousTotalUnlocks int32
     semaphoreMap map[string]*semaphore.Semaphore
 }
 
-var crmMutex sync.Mutex
+var crmMutex sync.RWMutex
 var clientResourceMap = map[string]*ClientResources{}
+var purgeClientChannel chan string
 
 func init() {
     uuid.EnableRandPool()
 
     clientResourceMap = make(map[string]*ClientResources)
+    purgeClientChannel = make(chan string)
 
     err := persist.Init(*DbPath)
     if err != nil {
         log.Fatal(err)
     }
+
+    go PurgeClientWorker()
+    go PurgeClientDaemon()
 }
 
-func getClientResources(clientID string) *ClientResources {
-    if _, ok := clientResourceMap[clientID]; !ok {
-        crmMutex.Lock()
-        defer crmMutex.Unlock()
+func getClientResources(clientID string) (cr *ClientResources) {
+    crmMutex.RLock()
+    cr, ok := clientResourceMap[clientID]
+    crmMutex.RUnlock()
 
-        cr := &ClientResources{
-            semaphoreMap: make(map[string]*semaphore.Semaphore),
-        }
-
-        clientResourceMap[clientID] = cr
+    if ok {
+        return cr
     }
 
-    return clientResourceMap[clientID]
+    crmMutex.Lock()
+    defer crmMutex.Unlock()
+
+    cr = &ClientResources{
+        totalLocks: new(int32),
+        totalUnlocks: new(int32),
+        semaphoreMap: make(map[string]*semaphore.Semaphore),
+    }
+
+    clientResourceMap[clientID] = cr
+
+    return cr
 }
 
 func RegisterClient(email string) (*ClientInfo, error) {
@@ -70,7 +88,11 @@ func RegisterClient(email string) (*ClientInfo, error) {
 }
 
 func VerifyClient(clientID string) bool {
-    if _, ok := clientResourceMap[clientID]; ok {
+    crmMutex.RLock()
+    _, ok := clientResourceMap[clientID]
+    crmMutex.RUnlock()
+
+    if ok {
         return true
     }
 
@@ -98,9 +120,10 @@ func GetMaxWaitTimeout(clientID string) time.Duration {
 
 func LockSemaphore(clientID string, mutexIdentifier string, waitTimeoutMs time.Duration) error {
     cr := getClientResources(clientID)
+    cr.mu.Lock()
+    defer cr.mu.Unlock()
+
     if _, ok := cr.semaphoreMap[mutexIdentifier]; !ok {
-        cr.mu.Lock()
-        defer cr.mu.Unlock()
         cr.semaphoreMap[mutexIdentifier] = semaphore.NewSemaphore(1)
     }
 
@@ -109,11 +132,16 @@ func LockSemaphore(clientID string, mutexIdentifier string, waitTimeoutMs time.D
                 mutexIdentifier))
     }
 
+    atomic.AddInt32(cr.totalLocks, 1)
+
     return nil
 }
 
 func UnlockSemaphore(clientID string, mutexIdentifier string) error {
     cr := getClientResources(clientID)
+    cr.mu.RLock()
+    defer cr.mu.RUnlock()
+
     if _, ok := cr.semaphoreMap[mutexIdentifier]; !ok {
         return errors.New(fmt.Sprintf("invalid mutex identifier '%s'", mutexIdentifier))
     }
@@ -123,5 +151,48 @@ func UnlockSemaphore(clientID string, mutexIdentifier string) error {
                 mutexIdentifier))
     }
 
+    atomic.AddInt32(cr.totalUnlocks, 1)
+
     return nil
+}
+
+func PurgeClientWorker() {
+    log.Println("PurgeClientWorker started")
+    for clientID := range purgeClientChannel {
+        log.Printf("PurgeClientWorker: purging client %s", clientID)
+        crmMutex.Lock()
+        delete(clientResourceMap, clientID)
+        crmMutex.Unlock()
+    }
+    log.Println("PurgeClientWorker exiting")
+}
+
+func PurgeClientDaemon() {
+    log.Println("PurgeClientDaemon started")
+    for {
+        log.Printf("PurgeClientDaemon: sleeping %v", PurgeInterval)
+        time.Sleep(PurgeInterval)
+        log.Printf("PurgeClientDaemon: purging idle clients")
+        PurgeIdleClients()
+    }
+}
+
+func PurgeIdleClients() {
+    crmMutex.RLock()
+    for clientID, cr := range clientResourceMap {
+        cr.mu.Lock()
+        if *cr.totalLocks == cr.previousTotalLocks && *cr.totalUnlocks == cr.previousTotalUnlocks {
+            if *cr.totalLocks != *cr.totalUnlocks {
+                log.Printf("PurgeIdleClients: client %s: mutex(s) held too long", clientID)
+            }
+
+            purgeClientChannel <- clientID
+        }
+
+        cr.previousTotalLocks = *cr.totalLocks
+        cr.previousTotalUnlocks = *cr.totalUnlocks
+
+        cr.mu.Unlock()
+    }
+    crmMutex.RUnlock()
 }

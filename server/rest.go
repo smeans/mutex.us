@@ -52,6 +52,34 @@ func reportError(ctx *fasthttp.RequestCtx, statusCode int, errorMessage string) 
     WriteJSON(ctx, errorBody)
 }
 
+func statsHandler(ctx *fasthttp.RequestCtx) {
+    args := ctx.QueryArgs()
+    adminId := string(args.Peek("adminId"))
+    if adminId != *AdminID {
+        reportError(ctx, 401, fmt.Sprintf("adminId '%s' is invalid", adminId))
+
+        return
+    }
+
+    ctx.SetContentType("application/json; charset=utf8")
+	ctx.WriteString("{")
+    ctx.WriteString(fmt.Sprintf(`"totalClients": %d`, len(clientResourceMap)))
+    var totalLocks int64
+    var totalUnlocks int64
+    var totalIdleClients int64
+
+    for _, cr := range clientResourceMap {
+        totalLocks += int64(*cr.totalLocks)
+        totalUnlocks += int64(*cr.totalUnlocks)
+        if *cr.totalLocks == cr.previousTotalLocks && *cr.totalUnlocks == cr.previousTotalUnlocks {
+            totalIdleClients += 1
+        }
+    }
+    ctx.WriteString(fmt.Sprintf(`, "totalLocks": %d, "totalUnlocks": %d, "totalIdleClients": %d`,
+            totalLocks, totalUnlocks, totalIdleClients))
+    ctx.WriteString("}")
+}
+
 func apiClientHandler(ctx *fasthttp.RequestCtx) {
 	if !ctx.IsPost() {
 		reportError(ctx, fasthttp.StatusBadRequest, "use POST to register a new client")

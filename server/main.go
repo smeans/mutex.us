@@ -16,6 +16,8 @@ func main() {
 		log.Fatalf(ConfigErrorText)
 	}
 
+	log.Printf("admin ID is %s", *AdminID)
+
 	// Setup FS handler
 	fs := &fasthttp.FS{
 		Root:               *Dir,
@@ -23,6 +25,7 @@ func main() {
 		GenerateIndexPages: *GenerateIndexPages,
 		Compress:           *Compress,
 	}
+
 	if *Vhost {
 		fs.PathRewrite = fasthttp.NewVHostPathRewriter(0)
 	}
@@ -34,6 +37,8 @@ func main() {
 		switch {
         case path == "/":
             mainHandler(ctx)
+		case path == "/stats":
+			statsHandler(ctx)
 		case strings.HasPrefix(path, "/api/client"):
 			if len(pathParams) >= 6 && pathParams[4] == "mutex" {
 				apiMutexHandler(ctx, pathParams[3], strings.Join(pathParams[5:], "/"))
