@@ -1,5 +1,5 @@
 # Mutex.Us
-Mutex.Us is an open-source web-service that provides access to reliable synchronization primitives using HTTP requests. The source code [is hosted on GitHub](https://github.com/smeans/mutex.us), is open-source and free to use. A freemium instance of it is available at [mutex.us](https:/mutex.us).
+Mutex.Us is an open-source web-service that provides access to reliable synchronization primitives using HTTP requests. The source code [is hosted on GitHub](https://github.com/smeans/mutex.us), is open-source and free to use. A freemium instance of it is available at [mutex.us](https://mutex.us).
 
 ## Overview
 With the increasing need to integrate systems and synchronize data between multiple systems, there is an increasing need to ensure data consistency as well. Sometimes a single resource needs to be updated by multiple third-party systems. Mutex.Us provides a simple, performant way to "lock" resources using a RESTful API.
