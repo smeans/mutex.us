@@ -54,9 +54,9 @@ func reportError(ctx *fasthttp.RequestCtx, statusCode int, errorMessage string) 
 
 func statsHandler(ctx *fasthttp.RequestCtx) {
     args := ctx.QueryArgs()
-    adminId := string(args.Peek("adminId"))
-    if adminId != *AdminID {
-        reportError(ctx, 401, fmt.Sprintf("adminId '%s' is invalid", adminId))
+
+    if adminID := string(args.Peek("adminID")); adminID != *AdminID {
+        reportError(ctx, 401, fmt.Sprintf("adminID '%s' is invalid", adminID))
 
         return
     }

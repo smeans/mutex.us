@@ -16,7 +16,7 @@ func main() {
 		log.Fatalf(ConfigErrorText)
 	}
 
-	log.Printf("admin ID is %s", *AdminID)
+	log.Printf("adminID is %s", *AdminID)
 
 	// Setup FS handler
 	fs := &fasthttp.FS{

@@ -120,14 +120,17 @@ func GetMaxWaitTimeout(clientID string) time.Duration {
 
 func LockSemaphore(clientID string, mutexIdentifier string, waitTimeoutMs time.Duration) error {
     cr := getClientResources(clientID)
+
     cr.mu.Lock()
-    defer cr.mu.Unlock()
+    semaphoreInstance, ok := cr.semaphoreMap[mutexIdentifier]
 
-    if _, ok := cr.semaphoreMap[mutexIdentifier]; !ok {
-        cr.semaphoreMap[mutexIdentifier] = semaphore.NewSemaphore(1)
+    if !ok {
+        semaphoreInstance = semaphore.NewSemaphore(1)
+        cr.semaphoreMap[mutexIdentifier] = semaphoreInstance
     }
+    cr.mu.Unlock()
 
-    if !cr.semaphoreMap[mutexIdentifier].Lock(waitTimeoutMs) {
+    if !semaphoreInstance.Lock(waitTimeoutMs) {
         return errors.New(fmt.Sprintf("unable to lock mutex '%s': timeout expired",
                 mutexIdentifier))
     }
