@@ -7,6 +7,8 @@ import (
     "io/ioutil"
 	"strings"
 
+	"mutex/server/persist"
+
     "github.com/gomarkdown/markdown"
 	"github.com/valyala/fasthttp"
 )
@@ -15,6 +17,12 @@ func main() {
 	if ConfigError != nil {
 		log.Fatalf(ConfigErrorText)
 	}
+
+	log.Printf("sqlite database path: %s", *DbPath)
+    err := persist.Init(*DbPath)
+    if err != nil {
+        log.Fatal(err)
+    }
 
 	log.Printf("adminID is %s", *AdminID)
 

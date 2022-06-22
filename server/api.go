@@ -38,11 +38,6 @@ func init() {
     clientResourceMap = make(map[string]*ClientResources)
     purgeClientChannel = make(chan string)
 
-    err := persist.Init(*DbPath)
-    if err != nil {
-        log.Fatal(err)
-    }
-
     go PurgeClientWorker()
     go PurgeClientDaemon()
 }
