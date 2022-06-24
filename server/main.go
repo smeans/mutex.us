@@ -6,11 +6,11 @@ import (
 	"log"
     "io/ioutil"
 	"strings"
+	"net/http"
 
 	"mutex/server/persist"
 
     "github.com/gomarkdown/markdown"
-	"github.com/valyala/fasthttp"
 )
 
 func main() {
@@ -26,58 +26,45 @@ func main() {
 
 	log.Printf("adminID is %s", *AdminID)
 
-	// Setup FS handler
-	fs := &fasthttp.FS{
-		Root:               *Dir,
-		IndexNames:         []string{"../README.md"},
-		GenerateIndexPages: *GenerateIndexPages,
-		Compress:           *Compress,
-	}
+	mux := http.NewServeMux()
 
-	if *Vhost {
-		fs.PathRewrite = fasthttp.NewVHostPathRewriter(0)
-	}
-
-	requestHandler := func(ctx *fasthttp.RequestCtx) {
-		path := string(ctx.Path())
+	mux.HandleFunc("/stats", statsHandler)
+	mux.HandleFunc("/api/client/", func (w http.ResponseWriter, req *http.Request) {
+		path := req.URL.Path
 		pathParams := strings.Split(path, "/")
-
-		switch {
-        case path == "/":
-            mainHandler(ctx)
-		case path == "/stats":
-			statsHandler(ctx)
-		case strings.HasPrefix(path, "/api/client"):
-			if len(pathParams) >= 6 && pathParams[4] == "mutex" {
-				apiMutexHandler(ctx, pathParams[3], strings.Join(pathParams[5:], "/"))
-			} else {
-				apiClientHandler(ctx)
-			}
+		if len(pathParams) >= 6 && pathParams[4] == "mutex" {
+			apiMutexHandler(w, req, pathParams[3], strings.Join(pathParams[5:], "/"))
+		} else {
+			w.WriteHeader(404)
 		}
-	}
+	})
+	mux.HandleFunc("/api/client", apiClientHandler)
+	mux.HandleFunc("/", mainHandler)
 
-	// Start HTTP server.
 	if len(*Addr) > 0 {
+		server := &http.Server{
+			Addr: *Addr,
+			Handler: mux,
+		}
+
 		log.Printf("Starting HTTP server on %q", *Addr)
 		go func() {
-			if err := fasthttp.ListenAndServe(*Addr, requestHandler); err != nil {
-				log.Fatalf("error in ListenAndServe: %v", err)
-			}
+			log.Fatal(server.ListenAndServe())
 		}()
 	}
 
 	// Start HTTPS server.
 	if len(*AddrTLS) > 0 {
+		server := &http.Server{
+			Addr: *AddrTLS,
+			Handler: mux,
+		}
+
 		log.Printf("Starting HTTPS server on %q", *AddrTLS)
 		go func() {
-			if err := fasthttp.ListenAndServeTLS(*AddrTLS, *CertFile, *KeyFile, requestHandler); err != nil {
-				log.Fatalf("error in ListenAndServeTLS: %v", err)
-			}
+			log.Fatal(server.ListenAndServeTLS(*CertFile, *KeyFile))
 		}()
 	}
-
-	log.Printf("Serving files from directory %q", *Dir)
-	log.Printf("See stats at http://%s/stats", *Addr)
 
 	// Wait forever.
 	select {}
@@ -85,12 +72,12 @@ func main() {
 
 var readmeHTML []byte
 
-func mainHandler(ctx *fasthttp.RequestCtx) {
+func mainHandler(w http.ResponseWriter, req *http.Request) {
     if len(readmeHTML) == 0 {
         readmeData, _ := ioutil.ReadFile("../README.md")
 
         readmeHTML = markdown.ToHTML(readmeData, nil, nil)
     }
-    ctx.SetContentType("text/html; charset=utf8")
-    ctx.Write(readmeHTML)
+    w.Header().Set("Content-Type", "text/html; charset=utf8")
+    w.Write([]byte(readmeHTML))
 }

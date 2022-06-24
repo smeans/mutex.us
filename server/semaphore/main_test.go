@@ -20,7 +20,7 @@ func worker(n int) {
 
 	lockWait := time.Duration((n-1.0)*100.0) * time.Millisecond
 	log.Printf("worker %d waiting %s for lock", n, lockWait)
-	if !semaphore.Lock(lockWait) {
+	if semaphore.Lock(lockWait, nil) != nil {
 		log.Printf("worker %d failed to lock... abort", n)
 
 		return

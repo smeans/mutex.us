@@ -2,6 +2,7 @@
 package main
 
 import (
+    "log"
     "fmt"
     "bytes"
     "strings"
@@ -9,8 +10,7 @@ import (
     "math"
     "strconv"
     "time"
-
-    "github.com/valyala/fasthttp"
+    "net/http"
 )
 
 type HttpError struct {
@@ -31,39 +31,44 @@ func JSONMarshal(t interface{}) ([]byte, error) {
     return buffer.Bytes(), err
 }
 
-func WriteJSON(ctx *fasthttp.RequestCtx, o interface{}) {
-    ctx.SetContentType("application/json; charset=utf8")
+func WriteJSON(w http.ResponseWriter, req *http.Request, o interface{}) bool {
+    w.Header().Set("Content-Type", "application/json; charset=utf8")
 
     data, _ := JSONMarshal(o)
 
-	ctx.Write(data)
+	_, err := w.Write(data)
+
+    if err != nil {
+        log.Printf("WriteJSON error %v", err)
+    }
+    return err == nil
 }
 
 // Set the HTTP status code and return an error JSON payload to the client.
-func reportError(ctx *fasthttp.RequestCtx, statusCode int, errorMessage string) {
+func reportError(w http.ResponseWriter, req *http.Request, statusCode int, errorMessage string) {
     // !!!TBD!!! wsm - consider logging errors here
-	ctx.SetStatusCode(statusCode)
+    log.Printf("reportError: %s: %s", req.RemoteAddr, errorMessage)
+	w.WriteHeader(statusCode)
 
 	errorBody := &HttpError{
 		StatusCode: statusCode,
 		ErrorMessage: errorMessage,
 	}
 
-    WriteJSON(ctx, errorBody)
+    WriteJSON(w, req, errorBody)
 }
 
-func statsHandler(ctx *fasthttp.RequestCtx) {
-    args := ctx.QueryArgs()
+func statsHandler(w http.ResponseWriter, req *http.Request) {
+    args := req.URL.Query()
 
-    if adminID := string(args.Peek("adminID")); adminID != *AdminID {
-        reportError(ctx, 401, fmt.Sprintf("adminID '%s' is invalid", adminID))
+    if adminID := string(args.Get("adminID")); adminID != *AdminID {
+        reportError(w, req, 401, fmt.Sprintf("adminID '%s' is invalid", adminID))
 
         return
     }
 
-    ctx.SetContentType("application/json; charset=utf8")
-	ctx.WriteString("{")
-    ctx.WriteString(fmt.Sprintf(`"totalClients": %d`, len(clientResourceMap)))
+    w.Header().Set("Content-Type", "application/json; charset=utf8")
+    w.Write([]byte(fmt.Sprintf(`"{totalClients": %d`, len(clientResourceMap))))
     var totalLocks int64
     var totalUnlocks int64
     var totalIdleClients int64
@@ -75,61 +80,63 @@ func statsHandler(ctx *fasthttp.RequestCtx) {
             totalIdleClients += 1
         }
     }
-    ctx.WriteString(fmt.Sprintf(`, "totalLocks": %d, "totalUnlocks": %d, "totalIdleClients": %d`,
-            totalLocks, totalUnlocks, totalIdleClients))
-    ctx.WriteString("}")
+    w.Write([]byte(fmt.Sprintf(`, "totalLocks": %d, "totalUnlocks": %d, "totalIdleClients": %d`,
+            totalLocks, totalUnlocks, totalIdleClients)))
+    w.Write([]byte("}"))
 }
 
-func apiClientHandler(ctx *fasthttp.RequestCtx) {
-	if !ctx.IsPost() {
-		reportError(ctx, fasthttp.StatusBadRequest, "use POST to register a new client")
+func apiClientHandler(w http.ResponseWriter, req *http.Request) {
+	if req.Method != "POST" {
+		reportError(w, req, 400, "use POST to register a new client")
 	}
 
-    args := ctx.QueryArgs()
+    args := req.URL.Query()
     if !args.Has("register") || !args.Has("email") {
-        reportError(ctx, fasthttp.StatusBadRequest, "usage: /api/client?register&email=[ValidEmailAddress]")
+        reportError(w, req, 400, "usage: /api/client?register&email=[ValidEmailAddress]")
 
         return
     }
 
-    email := string(args.Peek("email"))
+    email := string(args.Get("email"))
 
     clientInfo, err := RegisterClient(email)
     if err != nil {
         if (strings.HasPrefix(err.Error(), "UNIQUE constraint failed")) {
-            reportError(ctx, 400, fmt.Sprintf("email '%s' is already in use", email))
+            reportError(w, req, 400, fmt.Sprintf("email '%s' is already in use", email))
         } else {
-            reportError(ctx, 500, err.Error())
+            reportError(w, req, 500, err.Error())
         }
 
         return
     }
 
-    WriteJSON(ctx, clientInfo)
+    WriteJSON(w, req, clientInfo)
 }
 
-func apiMutexHandler(ctx *fasthttp.RequestCtx, clientID string, mutexIdentifier string) {
+func apiMutexHandler(w http.ResponseWriter, req *http.Request, clientID string, mutexIdentifier string) {
     if !VerifyClient(clientID) {
-        reportError(ctx, 401, fmt.Sprintf("client id '%s' is invalid", clientID))
+        reportError(w, req, 401, fmt.Sprintf("client id '%s' is invalid", clientID))
 
         return
     }
 
-    args := ctx.QueryArgs()
+    args := req.URL.Query()
 
     switch {
         case args.Has("lock"):
+            // conn := GetConn(req)
             waitTimeoutMs := GetMaxWaitTimeout(clientID)
             if args.Has("waitTimeoutMs") {
-                waitArgString := string(args.Peek("waitTimeoutMs"))
+                waitArgString := string(args.Get("waitTimeoutMs"))
                 if waitArg, err := strconv.Atoi(waitArgString); err == nil {
                     waitTimeoutMs = time.Duration(math.Min(float64(waitTimeoutMs),
                             float64(time.Duration(waitArg) * time.Millisecond)))
                 }
             }
 
-            if err := LockSemaphore(clientID, mutexIdentifier, waitTimeoutMs); err != nil {
-                reportError(ctx, 409, err.Error())
+            if err := LockSemaphore(clientID, mutexIdentifier, waitTimeoutMs,
+                        req.Context().Done()); err != nil {
+                reportError(w, req, 409, err.Error())
 
                 return
             }
@@ -138,11 +145,11 @@ func apiMutexHandler(ctx *fasthttp.RequestCtx, clientID string, mutexIdentifier 
                 StatusCode: 200,
             }
 
-            ctx.SetStatusCode(200)
-            WriteJSON(ctx, success)
+            w.WriteHeader(200)
+            WriteJSON(w, req, success)
         case args.Has("unlock"):
             if err := UnlockSemaphore(clientID, mutexIdentifier); err != nil {
-                reportError(ctx, 409, err.Error())
+                reportError(w, req, 409, err.Error())
 
                 return
             }
@@ -151,7 +158,7 @@ func apiMutexHandler(ctx *fasthttp.RequestCtx, clientID string, mutexIdentifier 
                 StatusCode: 200,
             }
 
-            ctx.SetStatusCode(200)
-            WriteJSON(ctx, success)
+            w.WriteHeader(200)
+            WriteJSON(w, req, success)
     }
 }

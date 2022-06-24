@@ -113,7 +113,8 @@ func GetMaxWaitTimeout(clientID string) time.Duration {
     return time.Duration(3) * time.Minute
 }
 
-func LockSemaphore(clientID string, mutexIdentifier string, waitTimeoutMs time.Duration) error {
+func LockSemaphore(clientID string, mutexIdentifier string, waitTimeoutMs time.Duration,
+            done <-chan struct{}) error {
     cr := getClientResources(clientID)
 
     cr.mu.Lock()
@@ -125,9 +126,8 @@ func LockSemaphore(clientID string, mutexIdentifier string, waitTimeoutMs time.D
     }
     cr.mu.Unlock()
 
-    if !semaphoreInstance.Lock(waitTimeoutMs) {
-        return errors.New(fmt.Sprintf("unable to lock mutex '%s': timeout expired",
-                mutexIdentifier))
+    if err := semaphoreInstance.Lock(waitTimeoutMs, done); err != nil {
+        return err
     }
 
     atomic.AddInt32(cr.totalLocks, 1)

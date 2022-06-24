@@ -2,6 +2,7 @@ package semaphore
 
 import (
 	"time"
+	"errors"
 )
 
 type Semaphore struct {
@@ -23,7 +24,7 @@ func NewSemaphore(limit int) *Semaphore {
 	return s
 }
 
-func (s *Semaphore) Lock(timeout time.Duration) bool {
+func (s *Semaphore) Lock(timeout time.Duration, done <-chan struct{}) error {
 	timeoutChannel := make(chan bool, 1)
 
 	if timeout >= 0 {
@@ -35,12 +36,18 @@ func (s *Semaphore) Lock(timeout time.Duration) bool {
 
 	select {
 	case _, ok := <-s.resource:
-		return ok
+		if ok {
+			return nil
+		} else {
+			return errors.New("lock failed: unable to acquire lock")
+		}
+	case <-done:
+		return errors.New("lock failed: client disconnected")
 	case _ = <-timeoutChannel:
-		return false
+		return errors.New("lock failed: wait timeout expired")
 	}
 
-	return false
+	return errors.New("lock failed: unknown error")
 }
 
 func (s *Semaphore) Unlock() bool {
