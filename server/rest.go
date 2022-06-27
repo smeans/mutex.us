@@ -120,11 +120,17 @@ func apiMutexHandler(w http.ResponseWriter, req *http.Request, clientID string, 
         return
     }
 
+
     args := req.URL.Query()
 
     switch {
         case args.Has("lock"):
-            // conn := GetConn(req)
+            if req.Method != "POST" {
+                reportError(w, req, 400, "use POST for lock operation")
+
+                return
+            }
+
             waitTimeoutMs := GetMaxWaitTimeout(clientID)
             if args.Has("waitTimeoutMs") {
                 waitArgString := string(args.Get("waitTimeoutMs"))
@@ -148,6 +154,12 @@ func apiMutexHandler(w http.ResponseWriter, req *http.Request, clientID string, 
             w.WriteHeader(200)
             WriteJSON(w, req, success)
         case args.Has("unlock"):
+            if req.Method != "POST" {
+                reportError(w, req, 400, "use POST for unlock operation")
+
+                return
+            }
+
             if err := UnlockSemaphore(clientID, mutexIdentifier); err != nil {
                 reportError(w, req, 409, err.Error())
 
@@ -160,5 +172,8 @@ func apiMutexHandler(w http.ResponseWriter, req *http.Request, clientID string, 
 
             w.WriteHeader(200)
             WriteJSON(w, req, success)
+
+        default:
+            reportError(w, req, 400, "bad request")
     }
 }
