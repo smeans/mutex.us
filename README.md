@@ -9,7 +9,7 @@ As an example, imagine that two different applications (Application A and Applic
 ### Register an Application
 Each application using Mutex.Us must register to receive a unique API key. Registration requires a valid email address:
 ```
-curl -X POST https:/mutex.us/api/client/?register&email=noreply@mutex.us
+curl -X POST https://mutex.us/api/client?register&email=noreply@mutex.us
 ```
 If the email address is not in use, a new API key will be returned:
 ```
